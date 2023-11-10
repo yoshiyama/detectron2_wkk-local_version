@@ -1,0 +1,1 @@
+python demo.py --config-file ../configs/COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml --video-input /mnt/c/Users/survey/Documents/GitHub/detectron2_wkk/demo/GX070226s.mp4 --output /mnt/c/Users/survey/Documents/GitHub/detectron2_wkk/demo/outputs2.mp4 --opts MODEL.WEIGHTS detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl
