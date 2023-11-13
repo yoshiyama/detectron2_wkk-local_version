@@ -18,6 +18,7 @@ You may want to write your own script with your datasets and other customization
 
 import logging
 import os
+import cv2
 from collections import OrderedDict
 
 import detectron2.utils.comm as comm
@@ -35,15 +36,43 @@ from detectron2.evaluation import (
     PascalVOCDetectionEvaluator,
     SemSegEvaluator,
     verify_results,
+    inference_on_dataset
 )
 from detectron2.modeling import GeneralizedRCNNWithTTA
 import register_custom_dataset #This is a custom script I created.
+
+from detectron2.utils.visualizer import Visualizer
+from detectron2.data import build_detection_test_loader
 
 # # データセットのルートディレクトリを指定してデータセットを登録
 # dataset_root = "./datasets"  # ここに適切なパスを指定してください
 # register_custom_dataset.register_custom_datasets(dataset_root)
 
+from detectron2.utils.visualizer import ColorMode
 
+
+class MyCOCOEvaluator(COCOEvaluator):
+    def __init__(self, dataset_name, cfg, distributed, output_dir):
+        super().__init__(dataset_name, cfg, distributed, output_dir)
+        self._dataset_name = dataset_name  # 追加する行
+
+    def process(self, inputs, outputs):
+        for input, output in zip(inputs, outputs):
+            original_height, original_width = input["height"], input["width"]
+
+            img = input["image"].numpy().transpose(1, 2, 0)
+            img = cv2.resize(img, (original_width, original_height))  # 元のサイズに戻す
+
+            v = Visualizer(img[:, :, ::-1], metadata=MetadataCatalog.get(self._dataset_name))
+            v = v.draw_instance_predictions(output["instances"].to("cpu"))
+            vis_img = v.get_image()[:, :, ::-1]
+
+            img_name = input["file_name"].split("/")[-1]
+            vis_path = os.path.join(self._output_dir, img_name)
+            cv2.imwrite(vis_path, vis_img)
+
+        # 親クラスの処理を呼び出す
+        super().process(inputs, outputs)
 def build_evaluator(cfg, dataset_name, output_folder=None):
     """
     Create evaluator(s) for a given dataset.
@@ -93,8 +122,26 @@ class Trainer(DefaultTrainer):
     """
 
     @classmethod
+    # def build_evaluator(cls, cfg, dataset_name, output_folder=None):
+    #     return build_evaluator(cfg, dataset_name, output_folder)
     def build_evaluator(cls, cfg, dataset_name, output_folder=None):
-        return build_evaluator(cfg, dataset_name, output_folder)
+        if output_folder is None:
+            output_folder = os.path.join(cfg.OUTPUT_DIR, "inference")
+        # return COCOEvaluator(dataset_name, cfg, True, output_folder)
+        # MyCOCOEvaluator を使用するように変更
+        return MyCOCOEvaluator(dataset_name, cfg, True, output_folder)
+
+    def test_with_visualization(self):
+        evaluator = self.build_evaluator(
+            self.cfg, self.cfg.DATASETS.TEST[0], os.path.join(self.cfg.OUTPUT_DIR, "visualization")
+        )
+        val_loader = build_detection_test_loader(self.cfg, self.cfg.DATASETS.TEST[0])
+        # inference_on_dataset(self.model, val_loader, evaluator)
+        # Now, evaluator will have the visualization results that can be processed.
+        results = inference_on_dataset(self.model, val_loader, evaluator)
+        # Save the visualization results if necessary
+        return results
+
 
     @classmethod
     def test_with_TTA(cls, cfg, model):
