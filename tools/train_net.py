@@ -17,7 +17,9 @@ You may want to write your own script with your datasets and other customization
 """
 
 import logging
+import argparse
 import os
+import cv2
 from collections import OrderedDict
 
 import detectron2.utils.comm as comm
@@ -35,15 +37,55 @@ from detectron2.evaluation import (
     PascalVOCDetectionEvaluator,
     SemSegEvaluator,
     verify_results,
+    inference_on_dataset
 )
 from detectron2.modeling import GeneralizedRCNNWithTTA
 import register_custom_dataset #This is a custom script I created.
+
+from detectron2.utils.visualizer import Visualizer
+from detectron2.data import build_detection_test_loader
 
 # # データセットのルートディレクトリを指定してデータセットを登録
 # dataset_root = "./datasets"  # ここに適切なパスを指定してください
 # register_custom_dataset.register_custom_datasets(dataset_root)
 
+from detectron2.utils.visualizer import ColorMode
 
+
+class MyCOCOEvaluator(COCOEvaluator):
+    def __init__(self, dataset_name, cfg, distributed, output_dir):
+        super().__init__(dataset_name, cfg, distributed, output_dir)
+        self._dataset_name = dataset_name  # 追加する行
+        self._output_dir=output_dir
+        print("init_output_dir=", self._output_dir)
+    #
+    # def __init__(self, dataset_name, cfg, distributed, output_dir):
+    #     super().__init__(dataset_name, cfg, distributed, output_dir)
+    #     self._dataset_name = dataset_name  # 追加する行
+    #     self._output_dir = output_dir
+    #     print("init_output_dir=", self._output_dir)
+
+    def process(self, inputs, outputs):
+        for input, output in zip(inputs, outputs):
+            original_height, original_width = input["height"], input["width"]
+
+            img = input["image"].numpy().transpose(1, 2, 0)
+            img = cv2.resize(img, (original_width, original_height))  # 元のサイズに戻す
+
+            v = Visualizer(img[:, :, ::-1], metadata=MetadataCatalog.get(self._dataset_name))
+            v = v.draw_instance_predictions(output["instances"].to("cpu"))
+            vis_img = v.get_image()[:, :, ::-1]
+
+            img_name = input["file_name"].split("/")[-1]
+            print(self._output_dir)
+            images_dir = os.path.join(self._output_dir, "images")  # 「/images」ではなく「images」を使う
+            os.makedirs(images_dir, exist_ok=True)  # imagesディレクトリがなければ作成
+            vis_path = os.path.join(images_dir, img_name)
+            print(vis_path)
+            cv2.imwrite(vis_path, vis_img)
+
+        # 親クラスの処理を呼び出す
+        super().process(inputs, outputs)
 def build_evaluator(cfg, dataset_name, output_folder=None):
     """
     Create evaluator(s) for a given dataset.
@@ -93,8 +135,28 @@ class Trainer(DefaultTrainer):
     """
 
     @classmethod
+    # def build_evaluator(cls, cfg, dataset_name, output_folder=None):
+    #     return build_evaluator(cfg, dataset_name, output_folder)
     def build_evaluator(cls, cfg, dataset_name, output_folder=None):
-        return build_evaluator(cfg, dataset_name, output_folder)
+        if output_folder is None:
+            output_folder = cfg.OUTPUT_DIR  # 出力ディレクトリの使用
+        # if output_folder is None:
+        #     output_folder = os.path.join(cfg.OUTPUT_DIR, "inference")
+        # return COCOEvaluator(dataset_name, cfg, True, output_folder)
+        # MyCOCOEvaluator を使用するように変更
+        return MyCOCOEvaluator(dataset_name, cfg, True, output_folder)
+
+    def test_with_visualization(self):
+        evaluator = self.build_evaluator(
+            self.cfg, self.cfg.DATASETS.TEST[0], os.path.join(self.cfg.OUTPUT_DIR, "visualization")
+        )
+        val_loader = build_detection_test_loader(self.cfg, self.cfg.DATASETS.TEST[0])
+        # inference_on_dataset(self.model, val_loader, evaluator)
+        # Now, evaluator will have the visualization results that can be processed.
+        results = inference_on_dataset(self.model, val_loader, evaluator)
+        # Save the visualization results if necessary
+        return results
+
 
     @classmethod
     def test_with_TTA(cls, cfg, model):
@@ -114,9 +176,16 @@ class Trainer(DefaultTrainer):
         return res
 
 def setup(args):
+    print("args.opts0=", args.opts)
     cfg = get_cfg()
+    # print("cfg=",cfg)
+    print("args.opts1=", args.opts)
     cfg.merge_from_file(args.config_file)
+    # print("cfg=", cfg)
+    print("args.opts2=", args.opts)
     cfg.merge_from_list(args.opts)
+    # print("cfg=", cfg)
+    cfg.OUTPUT_DIR = args.output_dir  # 出力ディレクトリを設定
     cfg.freeze()
     default_setup(cfg, args)
     return cfg
@@ -125,9 +194,15 @@ def setup(args):
 
 
 def main(args):
+    print("args.opts_m0=", args.opts)
     cfg = setup(args)
+    print("args.opts_m1=", args.opts)
+    print("main_cfg=",cfg)
+    # cfg.OUTPUT_DIR = args.output_dir  # 出力ディレクトリの設定
     dataset_root = args.dataset_root  # コマンドライン引数から取得
+    output_dir = args.output_dir
     register_custom_dataset.register_custom_datasets(dataset_root)  # データセットを登録
+
 
     if args.eval_only:
         model = Trainer.build_model(cfg)
@@ -150,12 +225,28 @@ def main(args):
     return trainer.train()
 
 if __name__ == "__main__":
-    parser = default_argument_parser()
-    parser.add_argument("--dataset_root", default="./datasets", help="Root directory of the dataset")
+    # 独自のパーサーを作成
+    custom_parser = argparse.ArgumentParser(add_help=False)
+    custom_parser.add_argument("--output_dir", default="./output", help="Directory to save output visualizations")
+    custom_parser.add_argument("--dataset_root", default="./datasets", help="Root directory of the dataset")
 
-    # args = default_argument_parser().parse_args()
-    args = parser.parse_args()
-    print("Command Line Args:", args)
+    # 最初に独自の引数をパース
+    custom_args, remaining_argv = custom_parser.parse_known_args()
+    print("custom_args=",custom_args)
+
+    # Detectron2のデフォルトパーサーで残りの引数を解析
+    parser = default_argument_parser()
+    args = parser.parse_args(remaining_argv)
+
+    # 独自の引数をargsに統合
+    args.output_dir = custom_args.output_dir
+    args.dataset_root = custom_args.dataset_root
+
+    # 引数の内容を出力（デバッグ用）
+    print("args.opts:", args.opts)
+    print("args.dataset_root:", args.dataset_root)
+    print("args.output_dir:", args.output_dir)
+
     launch(
         main,
         args.num_gpus,
