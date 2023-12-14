@@ -1,3 +1,4 @@
 python tools/train_net.py --config-file configs/COCO-Detection/faster_rcnn_X_101_32x8d_FPN_3x_custom_test.yaml --dataset_root datasets/ --num-gpus 1 --resume --eval-only MODEL.WEIGHTS output/model_final.pth
 ```
 python tools/train_net.py --config-file configs/COCO-Detection/faster_rcnn_X_101_32x8d_FPN_3x_custom.yaml --dataset_root datasets/inaoka
+python tools/train_net.py --config-file configs/COCO-Detection/faster_rcnn_X_101_32x8d_FPN_3x_custom.yaml --dataset_root datasets/inaoka --eval-only MODEL.WEIGHTS output/inaoka/model_0154999.pth

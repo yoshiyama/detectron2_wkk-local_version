@@ -15,6 +15,7 @@ from detectron2.utils.file_io import PathManager
 from detectron2.utils.logger import setup_logger
 from detectron2.utils.visualizer import Visualizer
 
+import register_custom_dataset #This is a custom script I created.
 
 def create_instances(predictions, image_size):
     ret = Instances(image_size)
@@ -37,6 +38,17 @@ def create_instances(predictions, image_size):
         pass
     return ret
 
+from detectron2.config import get_cfg
+from detectron2.engine import DefaultTrainer, default_argument_parser, default_setup, hooks, launch
+
+def setup(args):
+    cfg = get_cfg()
+    # cfg.merge_from_file(args.config_file)
+    # cfg.merge_from_list(args.opts)
+    cfg.freeze()
+    default_setup(cfg, args)
+    return cfg
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -48,6 +60,11 @@ if __name__ == "__main__":
     parser.add_argument("--conf-threshold", default=0.5, type=float, help="confidence threshold")
     args = parser.parse_args()
 
+    # cfg = setup(args)
+    dataset_root = args.dataset  # コマンドライン引数から取得
+    print("Dataset Root: ", dataset_root)
+    register_custom_dataset.register_custom_datasets(dataset_root)  # データセットを登録
+
     logger = setup_logger()
 
     with PathManager.open(args.input, "r") as f:
@@ -56,6 +73,13 @@ if __name__ == "__main__":
     pred_by_image = defaultdict(list)
     for p in predictions:
         pred_by_image[p["image_id"]].append(p)
+
+    for dataset_name in DatasetCatalog.list():
+        print("Dataset Name: ", dataset_name)
+
+        # データセットのメタデータを取得して表示
+        # metadata = MetadataCatalog.get(dataset_name)
+        # print("Metadata: ", metadata)
 
     dicts = list(DatasetCatalog.get(args.dataset))
     metadata = MetadataCatalog.get(args.dataset)

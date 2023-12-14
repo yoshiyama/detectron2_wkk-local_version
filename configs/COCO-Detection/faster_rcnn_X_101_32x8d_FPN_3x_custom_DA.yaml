@@ -14,6 +14,13 @@ MODEL:
 DATASETS:
   TRAIN: ("custom_dataset_train",)
   TEST: ("custom_dataset_val",)
+#INPUT:
+#  FORMAT: "BGR"  # これはデフォルトですが、他の色空間を使用する場合は変更します
+##  COLOR_AUG_SSD: True  # SSDスタイルのカラー拡張を有効にする
+#  BRIGHTNESS: 0.1  # 明るさの変更範囲
+#  CONTRAST: 0.1  # コントラストの変更範囲
+#  SATURATION: 0.1  # 彩度の変更範囲
+#  HUE: 0.05  # 色相の変更範囲
 SOLVER:
   BASE_LR: 0.002  # default:0.02
   STEPS: (210000, 250000)
